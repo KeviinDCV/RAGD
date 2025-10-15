@@ -294,138 +294,155 @@ export async function compareDocuments(documents: Document[]): Promise<Compariso
     throw new Error('Se necesitan al menos 2 documentos para comparar')
   }
   
-  // Get sample content from each document
-  const docContents = documents
-    .slice(0, 5) // Limit to 5 docs
-    .map(doc => ({
-      name: doc.name,
-      content: doc.chunks.slice(0, 3).join(' ').slice(0, 1000)
-    }))
+  // Get content from all documents
+  const docContents = documents.map(doc => ({
+    name: doc.name,
+    content: doc.content // Send full content for accurate comparison
+  }))
   
-  const prompt = `Analiza y compara estos ${documents.length} documentos:
+  const prompt = `Analiza y compara en detalle estos ${documents.length} documentos:
 
-${docContents.map((d, i) => `**Documento ${i + 1}: ${d.name}**\n${d.content}`).join('\n\n')}
+${docContents.map((d, i) => `=== DOCUMENTO ${i + 1}: ${d.name} ===\n${d.content}`).join('\n\n')}
 
-Responde ÚNICAMENTE en este formato exacto (sin negritas ni formato markdown):
+Responde en este formato:
 
 SIMILITUDES:
-- Primera similitud
-- Segunda similitud
-- Tercera similitud
+- [Lista todas las similitudes importantes que encuentres]
 
 DIFERENCIAS:
-- Primera diferencia
-- Segunda diferencia
-- Tercera diferencia
+- [Lista todas las diferencias clave que encuentres]
 
 RESUMEN:
-Un párrafo breve que resume la comparación de los documentos.`
+[Resumen ejecutivo de la comparación en 2-3 líneas]`
 
-  try {
-    const response = await fetch(OPENROUTER_API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:5173',
-        'X-Title': 'RAG Document App'
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-exp:free',
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000
-      })
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      console.error('Comparison API error:', response.status, errorData)
-      
-      if (response.status === 429) {
-        throw new Error('Demasiadas peticiones. Por favor espera unos segundos e intenta de nuevo.')
+  // Retry logic with exponential backoff for rate limits
+  const maxRetries = 3
+  let lastError: Error | null = null
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Wait before retry (exponential backoff: 0s, 5s, 15s)
+      if (attempt > 0) {
+        const waitTime = Math.pow(3, attempt) * 1000 // 3s, 9s, 27s
+        console.log(`Retry attempt ${attempt + 1}/${maxRetries}, waiting ${waitTime/1000}s...`)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
       }
       
-      throw new Error('Error al comparar documentos')
-    }
+      const response = await fetch(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost:5173',
+          'X-Title': 'RAG Document App'
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.0-flash-exp:free',
+          messages: [
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 1500 // Increased for detailed comparison
+        })
+      })
 
-    const data = await response.json()
-    
-    // Check for API error in response
-    if (data.error) {
-      console.error('Comparison API returned error:', JSON.stringify(data.error, null, 2))
-      throw new Error(data.error.message || 'Error al comparar documentos')
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Comparison API error:', response.status, errorData)
+        
+        if (response.status === 429) {
+          lastError = new Error('Demasiadas peticiones. Reintentando automáticamente...')
+          continue // Retry on 429
+        }
+        
+        throw new Error('Error al comparar documentos')
+      }
+
+      const data = await response.json()
+      
+      // Check for API error in response
+      if (data.error) {
+        console.error('Comparison API returned error:', JSON.stringify(data.error, null, 2))
+        throw new Error(data.error.message || 'Error al comparar documentos')
+      }
+      
+      // Validate response structure
+      if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+        console.error('Invalid comparison response format:', data)
+        throw new Error('Respuesta inválida del servidor')
+      }
+      
+      const content = data.choices[0]?.message?.content || ''
+      
+      if (!content) {
+        throw new Error('No se pudo obtener respuesta de comparación')
+      }
+      
+      console.log('Comparison response:', content) // Debug
+      
+      // Parse response with more flexible regex
+      const similaritiesMatch = content.match(/SIMILITUDES:?\s*([\s\S]*?)(?=DIFERENCIAS:|$)/i)
+      const differencesMatch = content.match(/DIFERENCIAS:?\s*([\s\S]*?)(?=RESUMEN:|$)/i)
+      const summaryMatch = content.match(/RESUMEN:?\s*([\s\S]*?)$/i)
+      
+      // Extract similarities
+      const similarities = similaritiesMatch 
+        ? similaritiesMatch[1]
+            .split('\n')
+            .map((s: string) => s.trim())
+            .filter((s: string) => s.length > 0 && (s.startsWith('-') || s.startsWith('•') || s.startsWith('*')))
+            .map((s: string) => s.replace(/^[-•*]\s*/, '').trim())
+            .filter((s: string) => s.length > 10)
+        : []
+      
+      // Extract differences
+      const differences = differencesMatch
+        ? differencesMatch[1]
+            .split('\n')
+            .map((d: string) => d.trim())
+            .filter((d: string) => d.length > 0 && (d.startsWith('-') || d.startsWith('•') || d.startsWith('*')))
+            .map((d: string) => d.replace(/^[-•*]\s*/, '').trim())
+            .filter((d: string) => d.length > 10)
+        : []
+      
+      // Extract summary
+      let summary = summaryMatch 
+        ? summaryMatch[1]
+            .split('\n')
+            .map((s: string) => s.trim())
+            .filter((s: string) => s.length > 0 && !s.startsWith('-') && !s.startsWith('•'))
+            .join(' ')
+            .trim()
+        : ''
+      
+      // If nothing was parsed, try to extract something useful from the content
+      if (similarities.length === 0 && differences.length === 0 && !summary) {
+        summary = content.slice(0, 200) + '...'
+      }
+      
+      if (!summary || summary.length < 10) {
+        summary = 'Los documentos han sido comparados. Revisa las similitudes y diferencias para más detalles.'
+      }
+      
+      // Success! Return the result
+      return { 
+        similarities: similarities.slice(0, 10), // Allow more items
+        differences: differences.slice(0, 10),   // Allow more items
+        summary 
+      }
+      
+    } catch (error) {
+      // Only retry on 429 errors
+      if (lastError && attempt < maxRetries - 1) {
+        continue
+      }
+      console.error('Error in comparison attempt:', error)
+      lastError = error instanceof Error ? error : new Error('Unknown error')
     }
-    
-    // Validate response structure
-    if (!data || !data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-      console.error('Invalid comparison response format:', data)
-      throw new Error('Respuesta inválida del servidor')
-    }
-    
-    const content = data.choices[0]?.message?.content || ''
-    
-    if (!content) {
-      throw new Error('No se pudo obtener respuesta de comparación')
-    }
-    
-    console.log('Comparison response:', content) // Debug
-    
-    // Parse response with more flexible regex
-    const similaritiesMatch = content.match(/SIMILITUDES:?\s*([\s\S]*?)(?=DIFERENCIAS:|$)/i)
-    const differencesMatch = content.match(/DIFERENCIAS:?\s*([\s\S]*?)(?=RESUMEN:|$)/i)
-    const summaryMatch = content.match(/RESUMEN:?\s*([\s\S]*?)$/i)
-    
-    // Extract similarities
-    const similarities = similaritiesMatch 
-      ? similaritiesMatch[1]
-          .split('\n')
-          .map((s: string) => s.trim())
-          .filter((s: string) => s.length > 0 && (s.startsWith('-') || s.startsWith('•') || s.startsWith('*')))
-          .map((s: string) => s.replace(/^[-•*]\s*/, '').trim())
-          .filter((s: string) => s.length > 10)
-      : []
-    
-    // Extract differences
-    const differences = differencesMatch
-      ? differencesMatch[1]
-          .split('\n')
-          .map((d: string) => d.trim())
-          .filter((d: string) => d.length > 0 && (d.startsWith('-') || d.startsWith('•') || d.startsWith('*')))
-          .map((d: string) => d.replace(/^[-•*]\s*/, '').trim())
-          .filter((d: string) => d.length > 10)
-      : []
-    
-    // Extract summary
-    let summary = summaryMatch 
-      ? summaryMatch[1]
-          .split('\n')
-          .map((s: string) => s.trim())
-          .filter((s: string) => s.length > 0 && !s.startsWith('-') && !s.startsWith('•'))
-          .join(' ')
-          .trim()
-      : ''
-    
-    // If nothing was parsed, try to extract something useful from the content
-    if (similarities.length === 0 && differences.length === 0 && !summary) {
-      summary = content.slice(0, 200) + '...'
-    }
-    
-    if (!summary || summary.length < 10) {
-      summary = 'Los documentos han sido comparados. Revisa las similitudes y diferencias para más detalles.'
-    }
-    
-    return { 
-      similarities: similarities.slice(0, 5), // Limit to 5 items
-      differences: differences.slice(0, 5),   // Limit to 5 items
-      summary 
-    }
-  } catch (error) {
-    console.error('Error comparing documents:', error)
-    throw error
   }
+  
+  // If all retries failed
+  throw lastError || new Error('Error al comparar documentos después de varios intentos')
 }
 
 // Generate suggested questions based on document content
