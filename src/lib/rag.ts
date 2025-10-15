@@ -13,6 +13,7 @@ interface ChunkWithEmbedding {
   text: string
   embedding: number[]
   documentId: string
+  documentName: string
 }
 
 export interface Source {
@@ -135,7 +136,8 @@ export async function uploadDocument(file: File): Promise<Document> {
         chunksWithEmbeddings.push({
           text: chunk,
           embedding,
-          documentId: id
+          documentId: id,
+          documentName: file.name
         })
       }
     } catch (error) {
@@ -152,65 +154,6 @@ export async function uploadDocument(file: File): Promise<Document> {
     type: getFileTypeDescription(file.name),
     metadata: parsed.metadata
   }
-}
-
-// Find most relevant chunks with sources
-async function findRelevantChunks(query: string, documents: Document[], topK: number = 3): Promise<Source[]> {
-  // In production, use simple keyword matching instead of embeddings
-  if (isProduction || chunksWithEmbeddings.length === 0) {
-    return findRelevantChunksSimple(query, documents, topK)
-  }
-  
-  try {
-    const queryEmbedding = await generateEmbedding(query)
-    
-    // Calculate similarities
-    const similarities = chunksWithEmbeddings.map(chunk => {
-      const doc = documents.find(d => d.id === chunk.documentId)
-      return {
-        text: chunk.text,
-        documentId: chunk.documentId,
-        documentName: doc?.name || 'Unknown',
-        similarity: cosineSimilarity(queryEmbedding, chunk.embedding)
-      }
-    })
-    
-    // Sort by similarity and get top K
-    similarities.sort((a, b) => b.similarity - a.similarity)
-    return similarities.slice(0, topK)
-  } catch (error) {
-    console.warn('Embedding search failed, using simple search:', error)
-    return findRelevantChunksSimple(query, documents, topK)
-  }
-}
-
-// Simple keyword-based search for production (fallback)
-function findRelevantChunksSimple(query: string, documents: Document[], topK: number = 3): Source[] {
-  const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2)
-  const allChunks: Source[] = []
-  
-  // Get all chunks from all documents
-  documents.forEach(doc => {
-    doc.chunks.forEach(chunk => {
-      const chunkLower = chunk.toLowerCase()
-      // Count matching words
-      const matchCount = queryWords.filter(word => chunkLower.includes(word)).length
-      const similarity = matchCount / queryWords.length
-      
-      if (similarity > 0) {
-        allChunks.push({
-          text: chunk,
-          documentId: doc.id,
-          documentName: doc.name,
-          similarity
-        })
-      }
-    })
-  })
-  
-  // Sort by similarity and return top K
-  allChunks.sort((a, b) => b.similarity - a.similarity)
-  return allChunks.slice(0, topK)
 }
 
 // Query documents with RAG using Groq
