@@ -1,0 +1,44 @@
+Documento de Ejemplo - RAG Document App
+
+Este es un documento de ejemplo que puedes usar para probar la aplicación RAG.
+
+¿Qué es RAG?
+RAG (Retrieval-Augmented Generation) es una técnica de inteligencia artificial que combina:
+1. Recuperación de información (Retrieval): Busca información relevante en documentos
+2. Generación aumentada (Augmented Generation): Usa esa información para generar respuestas precisas
+
+Características de esta aplicación:
+- Soporta múltiples formatos: PDF, Word, Excel, CSV, TXT, Markdown, JSON, y más
+- Embeddings locales usando Transformers.js con el modelo MiniLM-L6-v2
+- Búsqueda semántica por similitud de coseno
+- Generación de respuestas usando OpenRouter (Llama 3.1 8B Instruct)
+- Interfaz minimalista en escala de grises
+
+Tecnologías utilizadas:
+- React 18 con TypeScript
+- Vite para desarrollo y build
+- TailwindCSS para estilos
+- PDF.js para procesar archivos PDF
+- Mammoth para documentos Word
+- XLSX para hojas de cálculo Excel
+
+Preguntas sugeridas para probar:
+1. ¿Qué es RAG?
+2. ¿Qué formatos de archivo soporta la aplicación?
+3. ¿Qué tecnologías utiliza esta aplicación?
+4. ¿Cómo funciona la búsqueda semántica?
+
+Proceso de RAG:
+1. Los documentos se dividen en fragmentos (chunks) de 500 palabras con 100 de solapamiento
+2. Cada fragmento se convierte en un vector de embeddings
+3. Cuando haces una pregunta, se buscan los fragmentos más similares
+4. Esos fragmentos se envían como contexto al modelo de lenguaje
+5. El modelo genera una respuesta basada en ese contexto
+
+Ventajas de este enfoque:
+- Mayor precisión: Las respuestas están basadas en tus documentos específicos
+- Privacidad: Los embeddings se generan localmente en tu navegador
+- Escalabilidad: Puedes agregar tantos documentos como necesites
+- Flexibilidad: Soporta múltiples formatos de archivo sin conversiones manuales
+
+¡Empieza subiendo este documento y haciendo preguntas sobre él!
