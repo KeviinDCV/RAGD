@@ -25,8 +25,10 @@ VITE_GROQ_API_KEY=tu_groq_api_key_aqui
 
 ## Uso en la app:
 
-- **Groq**: Comparación de documentos (2 pasos: resumen + comparación)
-- **OpenRouter**: Queries normales con Gemini 2.0 Flash
+- **Groq**: TODO (queries normales + comparación de documentos)
+  - Llama 3.3 70B: Responder preguntas y comparación
+  - Llama 3.1 8B: Generar resúmenes rápidos
+- **OpenRouter**: Ya no se usa (problemas de rate limit)
 
 ## Más info:
 

@@ -213,47 +213,87 @@ function findRelevantChunksSimple(query: string, documents: Document[], topK: nu
   return allChunks.slice(0, topK)
 }
 
-// Query documents using OpenRouter
+// Query documents with RAG using Groq
 export async function queryDocuments(query: string, documents: Document[]): Promise<QueryResponse> {
   if (documents.length === 0) {
-    throw new Error('No hay documentos para consultar')
+    throw new Error('No hay documentos cargados')
   }
-  
-  // Find relevant chunks with sources
-  const sources = await findRelevantChunks(query, documents, 3)
-  
-  if (sources.length === 0) {
-    return {
-      answer: 'No se encontró información relevante en los documentos.',
-      sources: []
+
+  let sources: Source[] = []
+  let relevantContext = ''
+
+  if (isProduction) {
+    // Production: Use simple keyword search
+    console.log('Production mode: Using keyword search')
+    const keywords = query.toLowerCase().split(' ').filter(w => w.length > 3)
+    
+    const scoredChunks = documents.flatMap(doc => 
+      doc.chunks.map(chunk => {
+        const chunkLower = chunk.toLowerCase()
+        const score = keywords.reduce((acc, keyword) => 
+          acc + (chunkLower.includes(keyword) ? 1 : 0), 0
+        )
+        return { chunk, score, documentId: doc.id, documentName: doc.name }
+      })
+    ).filter(item => item.score > 0)
+    
+    scoredChunks.sort((a, b) => b.score - a.score)
+    const topChunks = scoredChunks.slice(0, 3)
+    
+    relevantContext = topChunks.map(item => item.chunk).join('\n\n')
+    sources = topChunks.map(item => ({
+      text: item.chunk.slice(0, 150) + '...',
+      documentId: item.documentId,
+      documentName: item.documentName,
+      similarity: item.score / keywords.length
+    }))
+  } else {
+    // Development: Use embeddings for semantic search
+    console.log('Development mode: Using embeddings')
+    
+    if (chunksWithEmbeddings.length === 0) {
+      throw new Error('No hay embeddings generados. Por favor sube los documentos de nuevo.')
     }
+
+    const queryEmbedding = await generateEmbedding(query)
+    
+    const similarities = chunksWithEmbeddings.map(item => ({
+      ...item,
+      similarity: cosineSimilarity(queryEmbedding, item.embedding)
+    }))
+
+    similarities.sort((a, b) => b.similarity - a.similarity)
+    const topChunks = similarities.slice(0, 3)
+    
+    relevantContext = topChunks.map(item => item.text).join('\n\n')
+    sources = topChunks.map(item => ({
+      text: item.text.slice(0, 150) + '...',
+      documentId: item.documentId,
+      documentName: item.documentName,
+      similarity: item.similarity
+    }))
   }
-  
-  // Build context from relevant chunks
-  const context = sources.map(s => s.text).join('\n\n')
-  
-  // Create prompt
-  const systemPrompt = `Eres un asistente útil que responde preguntas basándose en los documentos proporcionados. 
-Solo usa la información del contexto para responder. Si no encuentras la respuesta en el contexto, di que no tienes esa información.`
-  
+
+  // Generate answer with Groq AI using relevant context
+  const systemPrompt = `Eres un asistente útil que responde preguntas basándote en el contexto proporcionado. 
+Si la información no está en el contexto, di "No tengo suficiente información en los documentos para responder esa pregunta."`
+
   const userPrompt = `Contexto de los documentos:
-${context}
+${relevantContext}
 
-Pregunta: ${query}
+Pregunta del usuario: ${query}
 
-Responde de forma clara y concisa basándote únicamente en el contexto proporcionado.`
+Proporciona una respuesta clara y concisa basada únicamente en el contexto proporcionado.`
 
   try {
-    const response = await fetch(OPENROUTER_API_URL, {
+    const response = await fetch(GROQ_API_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:5173',
-        'X-Title': 'RAG Document App'
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-exp:free',
+        model: 'llama-3.3-70b-versatile', // Groq's powerful 70B model
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
@@ -267,10 +307,10 @@ Responde de forma clara y concisa basándote únicamente en el contexto proporci
       const errorData = await response.json().catch(() => ({}))
       
       if (response.status === 429) {
-        throw new Error('Demasiadas peticiones. Por favor espera 10-20 segundos e intenta de nuevo.')
+        throw new Error('Por favor espera unos segundos e intenta de nuevo.')
       }
       
-      throw new Error(`OpenRouter API error: ${response.status} - ${JSON.stringify(errorData)}`)
+      throw new Error(`Groq API error: ${response.status} - ${JSON.stringify(errorData)}`)
     }
 
     const data = await response.json()
@@ -281,8 +321,8 @@ Responde de forma clara y concisa basándote únicamente en el contexto proporci
       sources
     }
   } catch (error) {
-    console.error('Error calling OpenRouter:', error)
-    throw new Error('Error al comunicarse con OpenRouter API')
+    console.error('Error calling Groq:', error)
+    throw error
   }
 }
 
@@ -350,7 +390,7 @@ export async function compareDocuments(documents: Document[]): Promise<Compariso
 
 ${summaries.map((s, i) => `${i + 1}. ${s.name}:\n${s.summary}`).join('\n\n')}
 
-Formato de respuesta:
+Responde en TEXTO PLANO (sin markdown, sin asteriscos, sin negritas) usando este formato exacto:
 
 SIMILITUDES:
 - Similitud 1
@@ -363,7 +403,7 @@ DIFERENCIAS:
 - Diferencia 3
 
 RESUMEN:
-Breve conclusión sobre la comparación.`
+Escribe aquí un breve párrafo de conclusión sobre la comparación.`
 
   // Single attempt only - no retries to avoid wasting API quota
   const maxRetries = 1
@@ -422,39 +462,40 @@ Breve conclusión sobre la comparación.`
       
       console.log('Comparison response:', content) // Debug
       
-      // Parse response with more flexible regex
-      const similaritiesMatch = content.match(/SIMILITUDES:?\s*([\s\S]*?)(?=DIFERENCIAS:|$)/i)
-      const differencesMatch = content.match(/DIFERENCIAS:?\s*([\s\S]*?)(?=RESUMEN:|$)/i)
-      const summaryMatch = content.match(/RESUMEN:?\s*([\s\S]*?)$/i)
+      // Parse response with robust regex (handles **WORD:** markdown bold format)
+      const similaritiesMatch = content.match(/\*{0,2}SIMILITUDES:?\*{0,2}\s*([\s\S]*?)(?=\*{0,2}DIFERENCIAS:?|\*{0,2}RESUMEN:|$)/i)
+      const differencesMatch = content.match(/\*{0,2}DIFERENCIAS:?\*{0,2}\s*([\s\S]*?)(?=\*{0,2}RESUMEN:|$)/i)
+      const summaryMatch = content.match(/\*{0,2}RESUMEN:?\*{0,2}\s*([\s\S]*?)$/i)
       
-      // Extract similarities
+      // Extract similarities (only bullet points)
       const similarities = similaritiesMatch 
         ? similaritiesMatch[1]
             .split('\n')
             .map((s: string) => s.trim())
-            .filter((s: string) => s.length > 0 && (s.startsWith('-') || s.startsWith('•') || s.startsWith('*')))
-            .map((s: string) => s.replace(/^[-•*]\s*/, '').trim())
+            .filter((s: string) => s.length > 0 && (s.startsWith('-') || s.startsWith('•')))
+            .map((s: string) => s.replace(/^[-•]\s*/, '').trim())
             .filter((s: string) => s.length > 10)
         : []
       
-      // Extract differences
+      // Extract differences (only bullet points)
       const differences = differencesMatch
         ? differencesMatch[1]
             .split('\n')
             .map((d: string) => d.trim())
-            .filter((d: string) => d.length > 0 && (d.startsWith('-') || d.startsWith('•') || d.startsWith('*')))
-            .map((d: string) => d.replace(/^[-•*]\s*/, '').trim())
+            .filter((d: string) => d.length > 0 && (d.startsWith('-') || d.startsWith('•')))
+            .map((d: string) => d.replace(/^[-•]\s*/, '').trim())
             .filter((d: string) => d.length > 10)
         : []
       
-      // Extract summary
+      // Extract summary (clean text, remove bullet points and extra formatting)
       let summary = summaryMatch 
         ? summaryMatch[1]
             .split('\n')
             .map((s: string) => s.trim())
-            .filter((s: string) => s.length > 0 && !s.startsWith('-') && !s.startsWith('•'))
+            .filter((s: string) => s.length > 0 && !s.startsWith('-') && !s.startsWith('•') && !s.startsWith('**'))
             .join(' ')
             .trim()
+            .replace(/\*\*/g, '') // Remove any remaining ** markdown
         : ''
       
       // If nothing was parsed, try to extract something useful from the content
