@@ -333,18 +333,12 @@ DIFERENCIAS:
 RESUMEN:
 [Resumen ejecutivo de la comparación en 2-3 líneas]`
 
-  // Retry logic with exponential backoff for rate limits
-  const maxRetries = 3
+  // Single attempt only - no retries to avoid wasting API quota
+  const maxRetries = 1
   let lastError: Error | null = null
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      // Wait before retry (longer delays: 0s, 10s, 30s)
-      if (attempt > 0) {
-        const waitTime = attempt === 1 ? 10000 : 30000 // 10s then 30s
-        console.log(`Retry attempt ${attempt + 1}/${maxRetries}, esperando ${waitTime/1000}s...`)
-        await new Promise(resolve => setTimeout(resolve, waitTime))
-      }
       
       const response = await fetch(OPENROUTER_API_URL, {
         method: 'POST',

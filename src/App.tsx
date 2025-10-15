@@ -27,6 +27,8 @@ function App() {
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([])
   const [comparison, setComparison] = useState<ComparisonResult | null>(null)
   const [isComparing, setIsComparing] = useState(false)
+  const [lastComparisonTime, setLastComparisonTime] = useState<number>(0)
+  const [comparisonCooldown, setComparisonCooldown] = useState<number>(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom when messages change
@@ -108,17 +110,43 @@ function App() {
       return
     }
 
+    // Check cooldown (3 minutes between comparisons)
+    const now = Date.now()
+    const timeSinceLastComparison = now - lastComparisonTime
+    const cooldownPeriod = 180000 // 3 minutes in milliseconds
+    
+    if (timeSinceLastComparison < cooldownPeriod && lastComparisonTime > 0) {
+      const remainingSeconds = Math.ceil((cooldownPeriod - timeSinceLastComparison) / 1000)
+      setError(`⏱️ Por favor espera ${Math.ceil(remainingSeconds / 60)} minuto(s) antes de comparar de nuevo para evitar límites de la API.`)
+      return
+    }
+
     setIsComparing(true)
-    setComparison(null) // Clear previous comparison
+    setComparison(null)
     setError(null)
 
     try {
       const result = await compareDocuments(documents)
       setComparison(result)
+      setLastComparisonTime(Date.now())
+      
+      // Set cooldown timer
+      setComparisonCooldown(180) // 3 minutes
+      const interval = setInterval(() => {
+        setComparisonCooldown(prev => {
+          if (prev <= 1) {
+            clearInterval(interval)
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+      
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error al comparar documentos'
       if (errorMessage.includes('429') || errorMessage.includes('peticiones')) {
-        setError('⏱️ Límite de peticiones alcanzado. Por favor espera 1-2 minutos antes de comparar de nuevo.')
+        setError('⏱️ Límite de peticiones alcanzado. Debes esperar 3-5 minutos antes de comparar de nuevo.')
+        setLastComparisonTime(Date.now()) // Set cooldown even on error
       } else {
         setError(errorMessage)
       }
@@ -195,13 +223,18 @@ function App() {
               {documents.length >= 2 && (
                 <button
                   onClick={handleCompare}
-                  disabled={isComparing}
-                  className="mt-4 w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-600 rounded-md transition-colors flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                  disabled={isComparing || comparisonCooldown > 0}
+                  className="mt-4 w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-600 rounded-md transition-colors flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isComparing ? (
                     <>
                       <Loader2 size={16} className="animate-spin" />
                       Comparando...
+                    </>
+                  ) : comparisonCooldown > 0 ? (
+                    <>
+                      <GitCompare size={16} />
+                      Espera {Math.ceil(comparisonCooldown / 60)}m {comparisonCooldown % 60}s
                     </>
                   ) : (
                     <>
