@@ -1,4 +1,10 @@
-import { pipeline } from '@xenova/transformers'
+import { pipeline, env } from '@xenova/transformers'
+
+// Configure Transformers.js to use correct CDN for production
+env.allowRemoteModels = true
+env.allowLocalModels = false
+env.useBrowserCache = true
+env.backends.onnx.wasm.proxy = false
 
 // Singleton pattern for model loading
 class PipelineSingleton {
@@ -12,7 +18,8 @@ class PipelineSingleton {
       try {
         this.instance = await pipeline(this.task as any, this.model, { 
           progress_callback: progress_callback ?? undefined,
-          quantized: true // Use quantized model for faster loading
+          quantized: true, // Use quantized model for faster loading
+          revision: 'main' // Use main branch
         })
         console.log('Embedding model loaded successfully')
       } catch (error) {
