@@ -69,17 +69,26 @@ async function generateEmbedding(text: string): Promise<number[]> {
   const embedWorker = getWorker()
   
   return new Promise((resolve, reject) => {
+    // Set timeout of 60 seconds
+    const timeout = setTimeout(() => {
+      embedWorker.removeEventListener('message', handleMessage)
+      reject(new Error('Timeout generando embeddings. El modelo puede estar descargándose por primera vez. Intenta de nuevo en unos segundos.'))
+    }, 60000)
+    
     const handleMessage = (event: MessageEvent) => {
       const { type, data } = event.data
       
       if (type === 'embedding-result') {
+        clearTimeout(timeout)
         embedWorker.removeEventListener('message', handleMessage)
         resolve(data.embedding)
       } else if (type === 'error') {
+        clearTimeout(timeout)
         embedWorker.removeEventListener('message', handleMessage)
         reject(new Error(data.message))
+      } else if (type === 'progress') {
+        console.log('Embedding model loading:', data)
       }
-      // Ignore 'progress' messages
     }
     
     embedWorker.addEventListener('message', handleMessage)

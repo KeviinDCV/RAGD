@@ -8,9 +8,17 @@ class PipelineSingleton {
 
   static async getInstance(progress_callback: ((progress: any) => void) | null = null) {
     if (this.instance === null) {
-      this.instance = await pipeline(this.task as any, this.model, { 
-        progress_callback: progress_callback ?? undefined 
-      })
+      console.log('Loading embedding model:', this.model)
+      try {
+        this.instance = await pipeline(this.task as any, this.model, { 
+          progress_callback: progress_callback ?? undefined,
+          quantized: true // Use quantized model for faster loading
+        })
+        console.log('Embedding model loaded successfully')
+      } catch (error) {
+        console.error('Failed to load embedding model:', error)
+        throw error
+      }
     }
     return this.instance
   }
@@ -22,19 +30,27 @@ self.addEventListener('message', async (event) => {
 
   if (type === 'generate-embedding') {
     try {
+      console.log('Worker: Generating embedding for text of length:', data.text.length)
+      
       // Get or create pipeline
       const extractor = await PipelineSingleton.getInstance((progress) => {
         // Send download progress to main thread
+        console.log('Worker: Model loading progress:', progress)
         self.postMessage({ type: 'progress', data: progress })
       })
 
+      console.log('Worker: Pipeline ready, generating embedding...')
+      
       // Generate embedding
       const output = await extractor(data.text, { pooling: 'mean', normalize: true })
       const embedding = Array.from(output.data)
 
+      console.log('Worker: Embedding generated, length:', embedding.length)
+      
       // Send result back to main thread
       self.postMessage({ type: 'embedding-result', data: { embedding } })
     } catch (error) {
+      console.error('Worker: Error generating embedding:', error)
       self.postMessage({ 
         type: 'error', 
         data: { message: error instanceof Error ? error.message : 'Unknown error' } 
