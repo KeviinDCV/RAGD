@@ -102,6 +102,31 @@ function App() {
     }
   }
 
+  const handleCompare = async () => {
+    if (documents.length < 2) {
+      setError('Se necesitan al menos 2 documentos para comparar')
+      return
+    }
+
+    setIsComparing(true)
+    setComparison(null) // Clear previous comparison
+    setError(null)
+
+    try {
+      const result = await compareDocuments(documents)
+      setComparison(result)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error al comparar documentos'
+      if (errorMessage.includes('429') || errorMessage.includes('peticiones')) {
+        setError('⏱️ Límite de peticiones alcanzado. Por favor espera 1-2 minutos antes de comparar de nuevo.')
+      } else {
+        setError(errorMessage)
+      }
+    } finally {
+      setIsComparing(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-black text-gray-100">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -169,18 +194,7 @@ function App() {
               {/* Compare Button */}
               {documents.length >= 2 && (
                 <button
-                  onClick={async () => {
-                    setIsComparing(true)
-                    setError(null)
-                    try {
-                      const result = await compareDocuments(documents)
-                      setComparison(result)
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : 'Error al comparar documentos')
-                    } finally {
-                      setIsComparing(false)
-                    }
-                  }}
+                  onClick={handleCompare}
                   disabled={isComparing}
                   className="mt-4 w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-600 rounded-md transition-colors flex items-center justify-center gap-2 text-sm disabled:opacity-50"
                 >

@@ -294,11 +294,29 @@ export async function compareDocuments(documents: Document[]): Promise<Compariso
     throw new Error('Se necesitan al menos 2 documentos para comparar')
   }
   
-  // Get content from all documents
-  const docContents = documents.map(doc => ({
-    name: doc.name,
-    content: doc.content // Send full content for accurate comparison
-  }))
+  // Get strategic content from all documents (beginning, middle, end for context)
+  const docContents = documents.map(doc => {
+    const chunks = doc.chunks
+    const totalChunks = chunks.length
+    
+    // For small docs, send everything
+    if (totalChunks <= 5) {
+      return {
+        name: doc.name,
+        content: doc.content
+      }
+    }
+    
+    // For larger docs, send strategic samples: beginning, middle, end
+    const beginning = chunks.slice(0, 2).join(' ')
+    const middle = chunks.slice(Math.floor(totalChunks / 2) - 1, Math.floor(totalChunks / 2) + 1).join(' ')
+    const end = chunks.slice(-2).join(' ')
+    
+    return {
+      name: doc.name,
+      content: `[INICIO]\n${beginning}\n\n[MEDIO]\n${middle}\n\n[FINAL]\n${end}`
+    }
+  })
   
   const prompt = `Analiza y compara en detalle estos ${documents.length} documentos:
 
@@ -321,10 +339,10 @@ RESUMEN:
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      // Wait before retry (exponential backoff: 0s, 5s, 15s)
+      // Wait before retry (longer delays: 0s, 10s, 30s)
       if (attempt > 0) {
-        const waitTime = Math.pow(3, attempt) * 1000 // 3s, 9s, 27s
-        console.log(`Retry attempt ${attempt + 1}/${maxRetries}, waiting ${waitTime/1000}s...`)
+        const waitTime = attempt === 1 ? 10000 : 30000 // 10s then 30s
+        console.log(`Retry attempt ${attempt + 1}/${maxRetries}, esperando ${waitTime/1000}s...`)
         await new Promise(resolve => setTimeout(resolve, waitTime))
       }
       
@@ -337,12 +355,12 @@ RESUMEN:
           'X-Title': 'RAG Document App'
         },
         body: JSON.stringify({
-          model: 'google/gemini-2.0-flash-exp:free',
+          model: 'z-ai/glm-4.5-air:free', // 39.2B tokens processed, MoE, optimized for agentic tasks
           messages: [
             { role: 'user', content: prompt }
           ],
-          temperature: 0.7,
-          max_tokens: 1500 // Increased for detailed comparison
+          temperature: 0.5,
+          max_tokens: 800
         })
       })
 
