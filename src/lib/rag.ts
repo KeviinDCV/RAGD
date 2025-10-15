@@ -31,6 +31,9 @@ export interface QueryResponse {
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || ''
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
+// Check if running in production
+const isProduction = import.meta.env.PROD
+
 // Store embeddings in memory
 const chunksWithEmbeddings: ChunkWithEmbedding[] = []
 
@@ -113,19 +116,28 @@ export async function uploadDocument(file: File): Promise<Document> {
   const content = parsed.text
   
   if (!content || content.trim().length === 0) {
-    throw new Error('El documento está vacío o no se pudo extraer texto')
+    throw new Error('El documento está vacío o no se pudo extraer el texto')
   }
   
+  // Split into chunks
   const chunks = splitIntoChunks(content)
   
-  // Generate embeddings for each chunk
-  for (const chunk of chunks) {
-    const embedding = await generateEmbedding(chunk)
-    chunksWithEmbeddings.push({
-      text: chunk,
-      embedding,
-      documentId: id
-    })
+  // Only generate embeddings in development (local)
+  if (!isProduction) {
+    try {
+      // Generate embeddings for each chunk
+      for (const chunk of chunks) {
+        const embedding = await generateEmbedding(chunk)
+        chunksWithEmbeddings.push({
+          text: chunk,
+          embedding,
+          documentId: id
+        })
+      }
+    } catch (error) {
+      console.warn('Failed to generate embeddings, continuing without them:', error)
+      // Continue without embeddings in case of error
+    }
   }
   
   return {
@@ -140,26 +152,61 @@ export async function uploadDocument(file: File): Promise<Document> {
 
 // Find most relevant chunks with sources
 async function findRelevantChunks(query: string, documents: Document[], topK: number = 3): Promise<Source[]> {
-  if (chunksWithEmbeddings.length === 0) {
-    return []
+  // In production, use simple keyword matching instead of embeddings
+  if (isProduction || chunksWithEmbeddings.length === 0) {
+    return findRelevantChunksSimple(query, documents, topK)
   }
   
-  const queryEmbedding = await generateEmbedding(query)
+  try {
+    const queryEmbedding = await generateEmbedding(query)
+    
+    // Calculate similarities
+    const similarities = chunksWithEmbeddings.map(chunk => {
+      const doc = documents.find(d => d.id === chunk.documentId)
+      return {
+        text: chunk.text,
+        documentId: chunk.documentId,
+        documentName: doc?.name || 'Unknown',
+        similarity: cosineSimilarity(queryEmbedding, chunk.embedding)
+      }
+    })
+    
+    // Sort by similarity and get top K
+    similarities.sort((a, b) => b.similarity - a.similarity)
+    return similarities.slice(0, topK)
+  } catch (error) {
+    console.warn('Embedding search failed, using simple search:', error)
+    return findRelevantChunksSimple(query, documents, topK)
+  }
+}
+
+// Simple keyword-based search for production (fallback)
+function findRelevantChunksSimple(query: string, documents: Document[], topK: number = 3): Source[] {
+  const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2)
+  const allChunks: Source[] = []
   
-  // Calculate similarities
-  const similarities = chunksWithEmbeddings.map(chunk => {
-    const doc = documents.find(d => d.id === chunk.documentId)
-    return {
-      text: chunk.text,
-      documentId: chunk.documentId,
-      documentName: doc?.name || 'Unknown',
-      similarity: cosineSimilarity(queryEmbedding, chunk.embedding)
-    }
+  // Get all chunks from all documents
+  documents.forEach(doc => {
+    doc.chunks.forEach(chunk => {
+      const chunkLower = chunk.toLowerCase()
+      // Count matching words
+      const matchCount = queryWords.filter(word => chunkLower.includes(word)).length
+      const similarity = matchCount / queryWords.length
+      
+      if (similarity > 0) {
+        allChunks.push({
+          text: chunk,
+          documentId: doc.id,
+          documentName: doc.name,
+          similarity
+        })
+      }
+    })
   })
   
-  // Sort by similarity and get top K
-  similarities.sort((a, b) => b.similarity - a.similarity)
-  return similarities.slice(0, topK)
+  // Sort by similarity and return top K
+  allChunks.sort((a, b) => b.similarity - a.similarity)
+  return allChunks.slice(0, topK)
 }
 
 // Query documents using OpenRouter
