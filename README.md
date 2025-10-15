@@ -21,7 +21,16 @@ Aplicación web para consultar documentos usando RAG (Retrieval-Augmented Genera
 ## Instalación
 
 ```bash
+# Instalar dependencias
 npm install
+
+# Configurar variables de entorno
+cp .env.example .env.local
+
+# Editar .env.local y agregar tu API key de OpenRouter
+# VITE_OPENROUTER_API_KEY=tu_api_key_aqui
+
+# Iniciar servidor de desarrollo
 npm run dev
 ```
 
@@ -44,7 +53,12 @@ Despliega en Vercel sin configuración adicional. Incluye `vercel.json` con conf
 
 ## Configuración
 
-Edita `src/lib/rag.ts` línea 20 para usar tu propia API key de OpenRouter.
+1. Obtén una API key gratuita en [OpenRouter.ai](https://openrouter.ai/keys)
+2. Copia el archivo `.env.example` a `.env.local`
+3. Agrega tu API key en `.env.local`:
+   ```
+   VITE_OPENROUTER_API_KEY=tu_api_key_aqui
+   ```
 
 ## Notas
 

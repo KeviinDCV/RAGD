@@ -16,7 +16,7 @@ interface ChunkWithEmbedding {
 }
 
 // OpenRouter API configuration
-const OPENROUTER_API_KEY = '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'
+const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || ''
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 // Store embeddings in memory
