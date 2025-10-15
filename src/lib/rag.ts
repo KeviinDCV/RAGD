@@ -261,6 +261,11 @@ Responde de forma clara y concisa basándote únicamente en el contexto proporci
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
+      
+      if (response.status === 429) {
+        throw new Error('Demasiadas peticiones. Por favor espera 10-20 segundos e intenta de nuevo.')
+      }
+      
       throw new Error(`OpenRouter API error: ${response.status} - ${JSON.stringify(errorData)}`)
     }
 
@@ -338,6 +343,11 @@ Un párrafo breve que resume la comparación de los documentos.`
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       console.error('Comparison API error:', response.status, errorData)
+      
+      if (response.status === 429) {
+        throw new Error('Demasiadas peticiones. Por favor espera unos segundos e intenta de nuevo.')
+      }
+      
       throw new Error('Error al comparar documentos')
     }
 

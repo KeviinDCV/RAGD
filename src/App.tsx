@@ -46,8 +46,8 @@ function App() {
       const newDocs = [...documents, doc]
       setDocuments(newDocs)
       
-      // Generate suggested questions after first upload only
-      if (newDocs.length === 1 && messages.length === 0) {
+      // Generate suggested questions only in development to avoid rate limits
+      if (import.meta.env.DEV && newDocs.length === 1 && messages.length === 0) {
         try {
           const suggestions = await generateSuggestedQuestions(newDocs)
           if (suggestions.length > 0) {
