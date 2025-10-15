@@ -39,7 +39,12 @@ let worker: Worker | null = null
 
 function getWorker(): Worker {
   if (!worker) {
-    worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+    try {
+      worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+    } catch (error) {
+      console.error('Failed to initialize worker:', error)
+      throw new Error('No se pudo inicializar el procesador de embeddings')
+    }
   }
   return worker
 }
