@@ -27,9 +27,13 @@ export interface QueryResponse {
   sources: Source[]
 }
 
-// OpenRouter API configuration
+// API configuration
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || ''
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+// Groq API configuration (for document comparison - faster and no rate limits)
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || ''
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
 
 // Check if running in production
 const isProduction = import.meta.env.PROD
@@ -289,49 +293,77 @@ export interface ComparisonResult {
   summary: string
 }
 
+// Generate a short summary of a document using Groq (Step 1)
+async function generateDocumentSummary(doc: Document): Promise<string> {
+  // Take only first 3 chunks to keep it short
+  const sampleContent = doc.chunks.slice(0, 3).join(' ').slice(0, 1000)
+  
+  const prompt = `Resume brevemente este documento en 3-4 líneas, enfocándote en los temas principales:\n\n${sampleContent}`
+  
+  try {
+    const response = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant', // 560 tps - super fast!
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 150
+      })
+    })
+    
+    if (!response.ok) {
+      console.error('Groq summary error:', response.status)
+      return `Documento: ${doc.name}`
+    }
+    
+    const data = await response.json()
+    return data.choices[0]?.message?.content || `Documento: ${doc.name}`
+  } catch (error) {
+    console.error('Error generating summary:', error)
+    return `Documento: ${doc.name}`
+  }
+}
+
 export async function compareDocuments(documents: Document[]): Promise<ComparisonResult> {
   if (documents.length < 2) {
     throw new Error('Se necesitan al menos 2 documentos para comparar')
   }
   
-  // Get strategic content from all documents (beginning, middle, end for context)
-  const docContents = documents.map(doc => {
-    const chunks = doc.chunks
-    const totalChunks = chunks.length
-    
-    // For small docs, send everything
-    if (totalChunks <= 5) {
-      return {
-        name: doc.name,
-        content: doc.content
-      }
-    }
-    
-    // For larger docs, send strategic samples: beginning, middle, end
-    const beginning = chunks.slice(0, 2).join(' ')
-    const middle = chunks.slice(Math.floor(totalChunks / 2) - 1, Math.floor(totalChunks / 2) + 1).join(' ')
-    const end = chunks.slice(-2).join(' ')
-    
-    return {
+  // Step 1: Generate short summaries of each document (low token usage)
+  console.log('Generating document summaries...')
+  const summaries = await Promise.all(
+    documents.map(async (doc) => ({
       name: doc.name,
-      content: `[INICIO]\n${beginning}\n\n[MEDIO]\n${middle}\n\n[FINAL]\n${end}`
-    }
-  })
+      summary: await generateDocumentSummary(doc)
+    }))
+  )
   
-  const prompt = `Analiza y compara en detalle estos ${documents.length} documentos:
+  // Wait 1 second between summary generation and comparison (Groq is fast!)
+  await new Promise(resolve => setTimeout(resolve, 1000))
+  
+  // Step 2: Compare the summaries using Groq (much less tokens than full documents)
+  const prompt = `Compara estos ${documents.length} documentos basándote en sus resúmenes:
 
-${docContents.map((d, i) => `=== DOCUMENTO ${i + 1}: ${d.name} ===\n${d.content}`).join('\n\n')}
+${summaries.map((s, i) => `${i + 1}. ${s.name}:\n${s.summary}`).join('\n\n')}
 
-Responde en este formato:
+Formato de respuesta:
 
 SIMILITUDES:
-- [Lista todas las similitudes importantes que encuentres]
+- Similitud 1
+- Similitud 2
+- Similitud 3
 
 DIFERENCIAS:
-- [Lista todas las diferencias clave que encuentres]
+- Diferencia 1
+- Diferencia 2
+- Diferencia 3
 
 RESUMEN:
-[Resumen ejecutivo de la comparación en 2-3 líneas]`
+Breve conclusión sobre la comparación.`
 
   // Single attempt only - no retries to avoid wasting API quota
   const maxRetries = 1
@@ -340,16 +372,14 @@ RESUMEN:
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       
-      const response = await fetch(OPENROUTER_API_URL, {
+      const response = await fetch(GROQ_API_URL, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'http://localhost:5173',
-          'X-Title': 'RAG Document App'
+          'Authorization': `Bearer ${GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: 'z-ai/glm-4.5-air:free', // 39.2B tokens processed, MoE, optimized for agentic tasks
+          model: 'llama-3.3-70b-versatile', // 70B model - powerful and fast (280 tps)
           messages: [
             { role: 'user', content: prompt }
           ],
