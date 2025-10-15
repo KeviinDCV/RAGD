@@ -1,4 +1,4 @@
-# RAG Document App
+# Detal
 
 Aplicación web para consultar documentos usando RAG (Retrieval-Augmented Generation) completamente en el navegador.
 
@@ -73,4 +73,4 @@ MIT
 
 ---
 
-Kevin Ch
+**Detal** - Document Intelligence Assistant

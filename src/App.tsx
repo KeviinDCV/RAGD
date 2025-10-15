@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { FileText, Upload, Search, Loader2, AlertCircle } from 'lucide-react'
-import { uploadDocument, queryDocuments } from './lib/rag'
+import { FileText, Upload, Search, Loader2, AlertCircle, BookOpen, Sparkles, GitCompare } from 'lucide-react'
+import { uploadDocument, queryDocuments, Source, generateSuggestedQuestions, compareDocuments, ComparisonResult } from './lib/rag'
 import { getSupportedFileTypes } from './lib/documentParser'
 
 interface Document {
@@ -15,6 +15,7 @@ interface Document {
 interface Message {
   role: 'user' | 'assistant'
   content: string
+  sources?: Source[]
 }
 
 function App() {
@@ -23,6 +24,9 @@ function App() {
   const [query, setQuery] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([])
+  const [comparison, setComparison] = useState<ComparisonResult | null>(null)
+  const [isComparing, setIsComparing] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom when messages change
@@ -39,7 +43,21 @@ function App() {
 
     try {
       const doc = await uploadDocument(file)
-      setDocuments(prev => [...prev, doc])
+      const newDocs = [...documents, doc]
+      setDocuments(newDocs)
+      
+      // Generate suggested questions after first upload only
+      if (newDocs.length === 1 && messages.length === 0) {
+        try {
+          const suggestions = await generateSuggestedQuestions(newDocs)
+          if (suggestions.length > 0) {
+            setSuggestedQuestions(suggestions)
+          }
+        } catch (sugErr) {
+          console.warn('Could not generate suggestions:', sugErr)
+          // Don't show error to user, just skip suggestions
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar documento')
     } finally {
@@ -68,7 +86,11 @@ function App() {
       // Replace thinking message with actual response
       setMessages(prev => {
         const withoutThinking = prev.slice(0, -1)
-        return [...withoutThinking, { role: 'assistant', content: response }]
+        return [...withoutThinking, { 
+          role: 'assistant', 
+          content: response.answer,
+          sources: response.sources 
+        }]
       })
       setQuery('')
     } catch (err) {
@@ -143,6 +165,38 @@ function App() {
                   ))}
                 </div>
               )}
+              
+              {/* Compare Button */}
+              {documents.length >= 2 && (
+                <button
+                  onClick={async () => {
+                    setIsComparing(true)
+                    setError(null)
+                    try {
+                      const result = await compareDocuments(documents)
+                      setComparison(result)
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : 'Error al comparar documentos')
+                    } finally {
+                      setIsComparing(false)
+                    }
+                  }}
+                  disabled={isComparing}
+                  className="mt-4 w-full px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-600 rounded-md transition-colors flex items-center justify-center gap-2 text-sm disabled:opacity-50"
+                >
+                  {isComparing ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Comparando...
+                    </>
+                  ) : (
+                    <>
+                      <GitCompare size={16} />
+                      Comparar Documentos
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
 
@@ -151,15 +205,72 @@ function App() {
             <div className="bg-zinc-900 rounded-lg border border-zinc-800 flex flex-col h-[calc(100vh-12rem)]">
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
-                {messages.length === 0 ? (
+                {/* Comparison Results */}
+                {comparison && (
+                  <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-4 mb-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <GitCompare size={18} className="text-zinc-400" />
+                      <h3 className="text-sm font-medium">Comparación de Documentos</h3>
+                    </div>
+                    
+                    {/* Summary */}
+                    <div className="mb-4 p-3 bg-zinc-900/50 rounded border-l-2 border-zinc-600">
+                      <p className="text-xs font-medium text-zinc-400 mb-1">Resumen</p>
+                      <p className="text-sm text-zinc-300">{comparison.summary}</p>
+                    </div>
+                    
+                    {/* Similarities */}
+                    {comparison.similarities.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-xs font-medium text-zinc-500 mb-2">Similitudes</p>
+                        <ul className="space-y-1">
+                          {comparison.similarities.map((sim, idx) => (
+                            <li key={idx} className="text-sm text-zinc-400 flex gap-2">
+                              <span className="text-zinc-600">•</span>
+                              <span>{sim}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {/* Differences */}
+                    {comparison.differences.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-zinc-500 mb-2">Diferencias</p>
+                        <ul className="space-y-1">
+                          {comparison.differences.map((diff, idx) => (
+                            <li key={idx} className="text-sm text-zinc-400 flex gap-2">
+                              <span className="text-zinc-600">•</span>
+                              <span>{diff}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    <button
+                      onClick={() => setComparison(null)}
+                      className="mt-3 text-xs text-zinc-500 hover:text-zinc-400"
+                    >
+                      Cerrar comparación
+                    </button>
+                  </div>
+                )}
+                
+                {messages.length === 0 && !comparison ? (
                   <div className="h-full flex items-center justify-center text-zinc-500">
                     <div className="text-center">
-                      <Search size={48} className="mx-auto mb-4 opacity-30" />
+                      <img 
+                        src="/logo.png" 
+                        alt="RAG Document Logo" 
+                        className="w-24 h-24 mx-auto mb-6 opacity-50"
+                      />
                       <p className="text-lg font-light">Consulta tus documentos</p>
                       <p className="text-sm mt-2">Sube un documento y haz una pregunta</p>
                     </div>
                   </div>
-                ) : (
+                ) : messages.length > 0 ? (
                   messages.map((message, idx) => (
                     <div
                       key={idx}
@@ -180,12 +291,44 @@ function App() {
                             <span className="text-sm">Pensando...</span>
                           </div>
                         ) : (
-                          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                          <>
+                            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                            
+                            {/* Sources section */}
+                            {message.role === 'assistant' && message.sources && message.sources.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-zinc-700/50">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <BookOpen size={14} className="text-zinc-500" />
+                                  <span className="text-xs font-medium text-zinc-500">
+                                    Fuentes ({message.sources.length})
+                                  </span>
+                                </div>
+                                <div className="space-y-2">
+                                  {message.sources.map((source, idx) => (
+                                    <details key={idx} className="group">
+                                      <summary className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-300 transition-colors flex items-center gap-2">
+                                        <span className="font-mono bg-zinc-800 px-1.5 py-0.5 rounded">
+                                          [{idx + 1}]
+                                        </span>
+                                        <span className="truncate">{source.documentName}</span>
+                                        <span className="text-zinc-600 ml-auto">
+                                          {(source.similarity * 100).toFixed(0)}%
+                                        </span>
+                                      </summary>
+                                      <div className="mt-2 ml-6 p-2 bg-zinc-900/50 rounded text-xs text-zinc-400 border-l-2 border-zinc-700">
+                                        {source.text}
+                                      </div>
+                                    </details>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
                   ))
-                )}
+                ) : null}
                 <div ref={messagesEndRef} />
               </div>
 
@@ -194,6 +337,27 @@ function App() {
                 <div className="mx-4 mb-2 p-3 bg-zinc-900/50 border border-zinc-700 rounded-md flex items-start gap-2">
                   <AlertCircle size={16} className="text-zinc-400 mt-0.5 flex-shrink-0" />
                   <p className="text-sm text-zinc-300">{error}</p>
+                </div>
+              )}
+
+              {/* Suggested Questions */}
+              {suggestedQuestions.length > 0 && messages.length === 0 && (
+                <div className="mx-4 mb-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles size={14} className="text-zinc-500" />
+                    <span className="text-xs text-zinc-500">Preguntas sugeridas</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {suggestedQuestions.map((question, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setQuery(question)}
+                        className="text-xs px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 hover:border-zinc-600 rounded-full text-zinc-300 transition-colors"
+                      >
+                        {question}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -231,9 +395,9 @@ function App() {
           </div>
         </div>
         
-        {/* Footer con firma */}
+        {/* Footer */}
         <footer className="mt-12 pb-6 text-center">
-          <p className="text-sm text-zinc-600">Kevin Ch</p>
+          <p className="text-sm text-zinc-600">Detal</p>
         </footer>
       </div>
     </div>
