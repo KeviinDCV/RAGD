@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { FileText, Upload, Search, Loader2, AlertCircle, BookOpen, Sparkles, GitCompare, Sun, Moon, Shield, MessageSquare, PenTool, AlertTriangle, Info } from 'lucide-react'
+import { FileText, Upload, Search, Loader2, AlertCircle, BookOpen, Sparkles, Sun, Moon, Shield, MessageSquare, PenTool, AlertTriangle, Info } from 'lucide-react'
 import { useTheme } from './contexts/ThemeContext'
-import { uploadDocument, queryDocuments, Source, generateSuggestedQuestions, compareDocuments, ComparisonResult, detectContradictionsAndGaps, ContradictionsAndGapsResult, debateDocuments, DebateResult, assistWriting, WritingAssistanceResult } from './lib/rag'
+import { uploadDocument, queryDocuments, Source, generateSuggestedQuestions, detectContradictionsAndGaps, ContradictionsAndGapsResult, debateDocuments, DebateResult, assistWriting, WritingAssistanceResult } from './lib/rag'
 import { getSupportedFileTypes } from './lib/documentParser'
 
 interface Document {
@@ -27,8 +27,6 @@ function App() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([])
-  const [comparison, setComparison] = useState<ComparisonResult | null>(null)
-  const [isComparing, setIsComparing] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Estados para nuevas funcionalidades
@@ -113,30 +111,6 @@ function App() {
       setError(err instanceof Error ? err.message : 'Error al procesar consulta')
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleCompare = async () => {
-    if (documents.length < 2) {
-      setError('Se necesitan al menos 2 documentos para comparar')
-      return
-    }
-
-    // No cooldown needed with Groq! It has generous rate limits (300K TPM, 1K RPM)
-
-    setIsComparing(true)
-    setComparison(null)
-    setError(null)
-
-    try {
-      const result = await compareDocuments(documents)
-      setComparison(result)
-      // No cooldown needed with Groq!
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Error al comparar documentos'
-      setError(errorMessage)
-    } finally {
-      setIsComparing(false)
     }
   }
 
@@ -550,60 +524,7 @@ function App() {
                 {/* VISTA: CHAT (por defecto) */}
                 {activeFeature === 'chat' && (
                   <>
-                    {/* Comparison Results */}
-                    {comparison && (
-                  <div className="bg-gray-100 dark:bg-zinc-800/50 border border-gray-300 dark:border-zinc-700 rounded-lg p-4 mb-4 transition-colors">
-                    <div className="flex items-center gap-2 mb-3">
-                      <GitCompare size={18} className="text-gray-600 dark:text-zinc-400" />
-                      <h3 className="text-sm font-medium">Comparación de Documentos</h3>
-                    </div>
-                    
-                    {/* Summary */}
-                    <div className="mb-4 p-3 bg-white dark:bg-zinc-900/50 rounded border-l-2 border-gray-400 dark:border-zinc-600 transition-colors">
-                      <p className="text-xs font-medium text-gray-600 dark:text-zinc-400 mb-1">Resumen</p>
-                      <p className="text-sm text-gray-800 dark:text-zinc-300">{comparison.summary}</p>
-                    </div>
-                    
-                    {/* Similarities */}
-                    {comparison.similarities.length > 0 && (
-                      <div className="mb-3">
-                        <p className="text-xs font-medium text-gray-600 dark:text-zinc-500 mb-2">Similitudes</p>
-                        <ul className="space-y-1">
-                          {comparison.similarities.map((sim, idx) => (
-                            <li key={idx} className="text-sm text-gray-700 dark:text-zinc-400 flex gap-2">
-                              <span className="text-gray-500 dark:text-zinc-600">•</span>
-                              <span>{sim}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {/* Differences */}
-                    {comparison.differences.length > 0 && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-600 dark:text-zinc-500 mb-2">Diferencias</p>
-                        <ul className="space-y-1">
-                          {comparison.differences.map((diff, idx) => (
-                            <li key={idx} className="text-sm text-gray-700 dark:text-zinc-400 flex gap-2">
-                              <span className="text-gray-500 dark:text-zinc-600">•</span>
-                              <span>{diff}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    <button
-                      onClick={() => setComparison(null)}
-                      className="mt-3 text-xs text-gray-600 dark:text-zinc-500 hover:text-gray-800 dark:hover:text-zinc-400 transition-colors"
-                    >
-                      Cerrar comparación
-                    </button>
-                  </div>
-                )}
-                
-                {messages.length === 0 && !comparison ? (
+                {messages.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-gray-500 dark:text-zinc-500">
                     <div className="text-center">
                       <img 
