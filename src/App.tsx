@@ -42,9 +42,11 @@ function App() {
   const [activeFeature, setActiveFeature] = useState<'chat' | 'debate' | 'writing' | 'analysis'>('chat')
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to bottom when messages change (solo si hay mensajes)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages])
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -564,7 +566,7 @@ function App() {
                       <img 
                         src="/logo.png" 
                         alt="RAG Document Logo" 
-                        className="w-24 h-24 mx-auto mb-6 opacity-50"
+                        className="w-24 h-24 mx-auto mb-6 opacity-50 dark:invert-0 invert"
                       />
                       <p className="text-lg font-light">Consulta tus documentos</p>
                       <p className="text-sm mt-2">Sube un documento y haz una pregunta</p>
