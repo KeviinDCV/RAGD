@@ -40,6 +40,7 @@ function App() {
   const [writingPrompt, setWritingPrompt] = useState('')
   const [writingMode, setWritingMode] = useState<'similar' | 'summary' | 'expand'>('similar')
   const [activeFeature, setActiveFeature] = useState<'chat' | 'debate' | 'writing' | 'analysis'>('chat')
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -58,23 +59,18 @@ function App() {
       const newDocs = [...documents, doc]
       setDocuments(newDocs)
       
-      // Generate suggested questions only in development to avoid rate limits
-      if (import.meta.env.DEV && newDocs.length === 1 && messages.length === 0) {
-        try {
-          const suggestions = await generateSuggestedQuestions(newDocs)
-          if (suggestions.length > 0) {
-            setSuggestedQuestions(suggestions)
-          }
-        } catch (sugErr) {
-          console.warn('Could not generate suggestions:', sugErr)
-          // Don't show error to user, just skip suggestions
-        }
+      // Generate suggested questions for first document
+      if (documents.length === 0) {
+        const questions = await generateSuggestedQuestions([doc])
+        setSuggestedQuestions(questions)
       }
+      
+      // Cerrar sidebar móvil después de subir documento
+      setIsMobileSidebarOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar documento')
     } finally {
       setIsLoading(false)
-      // Reset input para permitir subir el mismo archivo de nuevo
       event.target.value = ''
     }
   }
@@ -192,43 +188,81 @@ function App() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-black text-gray-900 dark:text-gray-100 transition-colors">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
-        {/* Theme Toggle */}
-        <div className="flex justify-end mb-4">
+      {/* Mobile Sidebar Overlay */}
+      {isMobileSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
+
+      <div className="container mx-auto px-4 py-4 lg:py-8 max-w-7xl">
+        {/* Header con Theme Toggle y botón móvil */}
+        <div className="flex justify-between items-center mb-4">
           <button
-            onClick={toggleTheme}
-            className="p-2 rounded-lg bg-gray-200 dark:bg-zinc-800 hover:bg-gray-300 dark:hover:bg-zinc-700 transition-colors"
-            aria-label="Toggle theme"
+            onClick={() => setIsMobileSidebarOpen(true)}
+            className="lg:hidden p-2 rounded-lg bg-gray-200 dark:bg-zinc-800 hover:bg-gray-300 dark:hover:bg-zinc-700 transition-colors flex items-center gap-2"
           >
-            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            <FileText size={20} />
+            <span className="text-sm font-medium">
+              {documents.length} {documents.length === 1 ? 'Documento' : 'Documentos'}
+            </span>
           </button>
+          
+          <div className="flex-1 lg:flex-none flex justify-end">
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg bg-gray-200 dark:bg-zinc-800 hover:bg-gray-300 dark:hover:bg-zinc-700 transition-colors"
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Sidebar - Documents */}
-          <div className="lg:col-span-1">
-            <div className="bg-gray-50 dark:bg-zinc-900 rounded-lg border border-gray-200 dark:border-zinc-800 p-6 transition-colors">
+          {/* Sidebar - Documents (Desktop + Mobile Drawer) */}
+          <div className={`
+            lg:col-span-1 
+            fixed lg:relative 
+            inset-y-0 left-0 
+            z-50 lg:z-0
+            w-80 lg:w-auto
+            transform lg:transform-none
+            transition-transform duration-300
+            ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          `}>
+            <div className="bg-gray-50 dark:bg-zinc-900 h-screen lg:h-auto rounded-none lg:rounded-lg border-r lg:border border-gray-200 dark:border-zinc-800 p-6 transition-colors overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-medium flex items-center gap-2">
                   <FileText size={20} className="text-gray-600 dark:text-zinc-400" />
                   Documentos
                 </h2>
-                <label className="cursor-pointer">
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept={getSupportedFileTypes()}
-                    onChange={handleFileUpload}
-                    disabled={isLoading}
-                  />
-                  <div className="p-2 hover:bg-gray-200 dark:hover:bg-zinc-800 rounded-md transition-colors">
-                    {isLoading ? (
-                      <Loader2 size={20} className="animate-spin text-gray-600 dark:text-zinc-400" />
-                    ) : (
-                      <Upload size={20} className="text-gray-600 dark:text-zinc-400" />
-                    )}
-                  </div>
-                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsMobileSidebarOpen(false)}
+                    className="lg:hidden p-2 hover:bg-gray-200 dark:hover:bg-zinc-800 rounded-md transition-colors"
+                    aria-label="Cerrar"
+                  >
+                    <span className="text-xl">✕</span>
+                  </button>
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept={getSupportedFileTypes()}
+                      onChange={handleFileUpload}
+                      disabled={isLoading}
+                    />
+                    <div className="p-2 hover:bg-gray-200 dark:hover:bg-zinc-800 rounded-md transition-colors">
+                      {isLoading ? (
+                        <Loader2 size={20} className="animate-spin text-gray-600 dark:text-zinc-400" />
+                      ) : (
+                        <Upload size={20} className="text-gray-600 dark:text-zinc-400" />
+                      )}
+                    </div>
+                  </label>
+                </div>
               </div>
 
               {documents.length === 0 ? (
@@ -269,12 +303,12 @@ function App() {
 
           {/* Main Content Area */}
           <div className="lg:col-span-2">
-            <div className="bg-gray-50 dark:bg-zinc-900 rounded-lg border border-gray-200 dark:border-zinc-800 flex flex-col h-[calc(100vh-12rem)] transition-colors">
+            <div className="bg-gray-50 dark:bg-zinc-900 rounded-lg border border-gray-200 dark:border-zinc-800 flex flex-col h-[calc(100vh-6rem)] lg:h-[calc(100vh-10rem)] transition-colors">
               {/* Tab Navigation */}
-              <div className="flex gap-2 p-4 border-b border-gray-300 dark:border-zinc-800">
+              <div className="flex gap-2 p-3 lg:p-4 border-b border-gray-300 dark:border-zinc-800 overflow-x-auto scrollbar-thin">
                 <button
                   onClick={() => setActiveFeature('chat')}
-                  className={`px-4 py-2 rounded-md text-sm transition-colors ${
+                  className={`px-4 py-2 rounded-md text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
                     activeFeature === 'chat'
                       ? 'bg-gray-300 dark:bg-zinc-700 text-gray-900 dark:text-gray-100'
                       : 'bg-gray-200 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400 hover:bg-gray-300 dark:hover:bg-zinc-700'
@@ -287,7 +321,7 @@ function App() {
                   <>
                     <button
                       onClick={() => setActiveFeature('debate')}
-                      className={`px-4 py-2 rounded-md text-sm transition-colors ${
+                      className={`px-4 py-2 rounded-md text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
                         activeFeature === 'debate'
                           ? 'bg-gray-300 dark:bg-zinc-700 text-gray-900 dark:text-gray-100'
                           : 'bg-gray-200 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400 hover:bg-gray-300 dark:hover:bg-zinc-700'
@@ -298,7 +332,7 @@ function App() {
                     </button>
                     <button
                       onClick={() => setActiveFeature('analysis')}
-                      className={`px-4 py-2 rounded-md text-sm transition-colors ${
+                      className={`px-4 py-2 rounded-md text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
                         activeFeature === 'analysis'
                           ? 'bg-gray-300 dark:bg-zinc-700 text-gray-900 dark:text-gray-100'
                           : 'bg-gray-200 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400 hover:bg-gray-300 dark:hover:bg-zinc-700'
@@ -312,7 +346,7 @@ function App() {
                 {documents.length >= 1 && (
                   <button
                     onClick={() => setActiveFeature('writing')}
-                    className={`px-4 py-2 rounded-md text-sm transition-colors ${
+                    className={`px-4 py-2 rounded-md text-sm transition-colors whitespace-nowrap flex-shrink-0 ${
                       activeFeature === 'writing'
                         ? 'bg-gray-300 dark:bg-zinc-700 text-gray-900 dark:text-gray-100'
                         : 'bg-gray-200 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400 hover:bg-gray-300 dark:hover:bg-zinc-700'
