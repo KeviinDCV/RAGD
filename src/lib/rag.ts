@@ -547,3 +547,355 @@ Responde SOLO con las 4 preguntas, una por línea, sin numeración ni formato ad
     return []
   }
 }
+
+// ==================== NUEVAS FUNCIONALIDADES INNOVADORAS ====================
+
+// 1. DETECCIÓN DE CONTRADICCIONES Y GAPS
+export interface ContradictionsAndGapsResult {
+  contradictions: Array<{
+    topic: string
+    description: string
+    documents: string[]
+  }>
+  gaps: Array<{
+    topic: string
+    description: string
+  }>
+  summary: string
+}
+
+export async function detectContradictionsAndGaps(documents: Document[]): Promise<ContradictionsAndGapsResult> {
+  if (documents.length < 2) {
+    throw new Error('Se necesitan al menos 2 documentos para detectar contradicciones')
+  }
+
+  // Generate document summaries first
+  const summaries = await Promise.all(
+    documents.map(async (doc) => ({
+      name: doc.name,
+      summary: await generateDocumentSummary(doc)
+    }))
+  )
+
+  await new Promise(resolve => setTimeout(resolve, 1000))
+
+  const prompt = `Analiza estos ${documents.length} documentos y detecta contradicciones y vacíos de información:
+
+${summaries.map((s, i) => `${i + 1}. ${s.name}:\n${s.summary}`).join('\n\n')}
+
+Responde en TEXTO PLANO usando este formato exacto:
+
+CONTRADICCIONES:
+- Tema: [tema], Descripción: [descripción], Documentos: [doc1, doc2]
+- Tema: [tema], Descripción: [descripción], Documentos: [doc1, doc2]
+
+VACÍOS DE INFORMACIÓN:
+- Tema: [tema], Descripción: [descripción de qué información falta]
+- Tema: [tema], Descripción: [descripción de qué información falta]
+
+RESUMEN:
+Un breve párrafo sobre el análisis general.`
+
+  try {
+    const response = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.4,
+        max_tokens: 1000
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Error al analizar contradicciones')
+    }
+
+    const data = await response.json()
+    const content = data.choices[0]?.message?.content || ''
+
+    // Parse contradicciones
+    const contradictionsMatch = content.match(/\*{0,2}CONTRADICCIONES:?\*{0,2}\s*([\s\S]*?)(?=\*{0,2}VACÍOS DE INFORMACIÓN:|VACIOS DE INFORMACION:|\*{0,2}RESUMEN:|$)/i)
+    const gapsMatch = content.match(/\*{0,2}VACÍOS DE INFORMACIÓN:?|VACIOS DE INFORMACION:?\*{0,2}\s*([\s\S]*?)(?=\*{0,2}RESUMEN:|$)/i)
+    const summaryMatch = content.match(/\*{0,2}RESUMEN:?\*{0,2}\s*([\s\S]*?)$/i)
+
+    const contradictions = contradictionsMatch 
+      ? contradictionsMatch[1]
+          .split('\n')
+          .filter((line: string) => line.trim().startsWith('-') || line.trim().startsWith('•'))
+          .map((line: string) => {
+            const clean = line.replace(/^[-•]\s*/, '').trim()
+            const topicMatch = clean.match(/Tema:\s*([^,]+)/i)
+            const descMatch = clean.match(/Descripción:\s*([^,]+)/i)
+            const docsMatch = clean.match(/Documentos:\s*\[?([^\]]+)\]?/i)
+            
+            return {
+              topic: topicMatch ? topicMatch[1].trim() : 'Sin especificar',
+              description: descMatch ? descMatch[1].trim() : clean,
+              documents: docsMatch ? docsMatch[1].split(',').map((d: string) => d.trim()) : []
+            }
+          })
+          .filter((c: any) => c.description.length > 10)
+      : []
+
+    const gaps = gapsMatch
+      ? gapsMatch[1]
+          .split('\n')
+          .filter((line: string) => line.trim().startsWith('-') || line.trim().startsWith('•'))
+          .map((line: string) => {
+            const clean = line.replace(/^[-•]\s*/, '').trim()
+            const topicMatch = clean.match(/Tema:\s*([^,]+)/i)
+            const descMatch = clean.match(/Descripción:\s*(.+)/i)
+            
+            return {
+              topic: topicMatch ? topicMatch[1].trim() : 'Información faltante',
+              description: descMatch ? descMatch[1].trim() : clean
+            }
+          })
+          .filter((g: any) => g.description.length > 10)
+      : []
+
+    const summary = summaryMatch 
+      ? summaryMatch[1].trim().replace(/\*\*/g, '')
+      : 'Análisis completado de contradicciones y vacíos de información.'
+
+    return { contradictions, gaps, summary }
+  } catch (error) {
+    console.error('Error detecting contradictions:', error)
+    throw error
+  }
+}
+
+// 2. MODO DEBATE ENTRE DOCUMENTOS
+export interface DebateResult {
+  topic: string
+  rounds: Array<{
+    documentName: string
+    position: string
+  }>
+  conclusion: string
+}
+
+export async function debateDocuments(documents: Document[], topic: string): Promise<DebateResult> {
+  if (documents.length < 2) {
+    throw new Error('Se necesitan al menos 2 documentos para debatir')
+  }
+
+  // Generate summaries
+  const summaries = await Promise.all(
+    documents.map(async (doc) => ({
+      name: doc.name,
+      summary: await generateDocumentSummary(doc)
+    }))
+  )
+
+  await new Promise(resolve => setTimeout(resolve, 1000))
+
+  const prompt = `Simula un debate entre estos ${documents.length} documentos sobre el tema: "${topic}"
+
+Documentos:
+${summaries.map((s, i) => `${i + 1}. ${s.name}:\n${s.summary}`).join('\n\n')}
+
+Crea un debate donde cada documento presenta su perspectiva sobre "${topic}". Usa este formato:
+
+RONDA 1 - ${summaries[0].name}:
+[Posición del documento sobre el tema]
+
+RONDA 1 - ${summaries[1].name}:
+[Posición del documento sobre el tema]
+
+${summaries.length > 2 ? `RONDA 1 - ${summaries[2].name}:\n[Posición del documento sobre el tema]\n\n` : ''}
+CONCLUSIÓN:
+[Síntesis del debate y puntos en común/divergentes]`
+
+  try {
+    const response = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_tokens: 1500
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Error al generar debate')
+    }
+
+    const data = await response.json()
+    const content = data.choices[0]?.message?.content || ''
+
+    // Parse debate rounds
+    const rounds: Array<{ documentName: string; position: string }> = []
+    
+    summaries.forEach((summary) => {
+      const regex = new RegExp(`RONDA \\d+ - ${summary.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:?\\s*([\\s\\S]*?)(?=RONDA \\d+|CONCLUSIÓN:|$)`, 'i')
+      const match = content.match(regex)
+      if (match && match[1]) {
+        rounds.push({
+          documentName: summary.name,
+          position: match[1].trim()
+        })
+      }
+    })
+
+    const conclusionMatch = content.match(/\*{0,2}CONCLUSIÓN:?\*{0,2}\s*([\s\S]*?)$/i)
+    const conclusion = conclusionMatch 
+      ? conclusionMatch[1].trim().replace(/\*\*/g, '')
+      : 'El debate ha concluido.'
+
+    return { topic, rounds, conclusion }
+  } catch (error) {
+    console.error('Error in debate:', error)
+    throw error
+  }
+}
+
+// 3. ASISTENTE DE ESCRITURA
+export interface WritingAssistanceResult {
+  generatedText: string
+  suggestions: string[]
+  styleNotes: string
+}
+
+export async function assistWriting(
+  documents: Document[], 
+  prompt: string,
+  mode: 'similar' | 'summary' | 'expand' = 'similar'
+): Promise<WritingAssistanceResult> {
+  if (documents.length === 0) {
+    throw new Error('Se necesita al menos 1 documento como referencia')
+  }
+
+  // Get sample content from documents
+  const sampleContent = documents
+    .slice(0, 3)
+    .map(doc => doc.chunks.slice(0, 3).join(' '))
+    .join('\n\n')
+    .slice(0, 3000)
+
+  let systemPrompt = ''
+  let userPrompt = ''
+
+  switch (mode) {
+    case 'similar':
+      systemPrompt = 'Eres un asistente de escritura experto. Ayudas a escribir texto siguiendo el estilo y tono de documentos de referencia.'
+      userPrompt = `Basándote en el estilo y contenido de estos documentos de referencia, ayúdame con lo siguiente:
+
+Documentos de referencia:
+${sampleContent}
+
+Solicitud del usuario: ${prompt}
+
+Genera texto que siga el estilo, tono y formato de los documentos de referencia. Sé coherente y profesional.`
+      break
+    
+    case 'summary':
+      systemPrompt = 'Eres un asistente experto en crear resúmenes y síntesis de información.'
+      userPrompt = `Crea un resumen basándote en estos documentos:
+
+${sampleContent}
+
+Enfoque específico: ${prompt}
+
+Crea un resumen claro, conciso y bien estructurado.`
+      break
+    
+    case 'expand':
+      systemPrompt = 'Eres un asistente de escritura que ayuda a expandir y desarrollar ideas.'
+      userPrompt = `Usando estos documentos como contexto:
+
+${sampleContent}
+
+Expande y desarrolla esta idea: ${prompt}
+
+Proporciona un texto detallado, bien fundamentado y coherente.`
+      break
+  }
+
+  try {
+    const response = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 2000
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Error al generar asistencia de escritura')
+    }
+
+    const data = await response.json()
+    const generatedText = data.choices[0]?.message?.content || ''
+
+    // Generate writing suggestions
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    const suggestionsPrompt = `Basándote en este texto generado, proporciona 3 sugerencias breves para mejorarlo:
+
+${generatedText.slice(0, 500)}
+
+Responde SOLO con 3 sugerencias, una por línea, sin numeración.`
+
+    const suggestionsResponse = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.1-8b-instant',
+        messages: [{ role: 'user', content: suggestionsPrompt }],
+        temperature: 0.6,
+        max_tokens: 300
+      })
+    })
+
+    let suggestions: string[] = []
+    let styleNotes = ''
+
+    if (suggestionsResponse.ok) {
+      const suggestionsData = await suggestionsResponse.json()
+      const suggestionsContent = suggestionsData.choices[0]?.message?.content || ''
+      suggestions = suggestionsContent
+        .split('\n')
+        .map((s: string) => s.trim())
+        .filter((s: string) => s.length > 10)
+        .slice(0, 3)
+    }
+
+    styleNotes = mode === 'similar' 
+      ? 'El texto sigue el estilo de los documentos de referencia.'
+      : mode === 'summary'
+      ? 'Resumen generado a partir de la información disponible.'
+      : 'Texto expandido con detalles adicionales.'
+
+    return {
+      generatedText,
+      suggestions: suggestions.length > 0 ? suggestions : ['Revisa la coherencia del texto', 'Verifica los datos mencionados', 'Considera agregar ejemplos'],
+      styleNotes
+    }
+  } catch (error) {
+    console.error('Error in writing assistance:', error)
+    throw error
+  }
+}
