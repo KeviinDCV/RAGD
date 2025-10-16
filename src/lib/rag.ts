@@ -623,7 +623,7 @@ Un breve párrafo sobre el análisis general.`
     const gapsMatch = content.match(/\*{0,2}VACÍOS DE INFORMACIÓN:?|VACIOS DE INFORMACION:?\*{0,2}\s*([\s\S]*?)(?=\*{0,2}RESUMEN:|$)/i)
     const summaryMatch = content.match(/\*{0,2}RESUMEN:?\*{0,2}\s*([\s\S]*?)$/i)
 
-    const contradictions = contradictionsMatch 
+    const contradictions = (contradictionsMatch && contradictionsMatch[1])
       ? contradictionsMatch[1]
           .split('\n')
           .filter((line: string) => line.trim().startsWith('-') || line.trim().startsWith('•'))
@@ -642,7 +642,7 @@ Un breve párrafo sobre el análisis general.`
           .filter((c: any) => c.description.length > 10)
       : []
 
-    const gaps = gapsMatch
+    const gaps = (gapsMatch && gapsMatch[1])
       ? gapsMatch[1]
           .split('\n')
           .filter((line: string) => line.trim().startsWith('-') || line.trim().startsWith('•'))
@@ -659,7 +659,7 @@ Un breve párrafo sobre el análisis general.`
           .filter((g: any) => g.description.length > 10)
       : []
 
-    const summary = summaryMatch 
+    const summary = (summaryMatch && summaryMatch[1])
       ? summaryMatch[1].trim().replace(/\*\*/g, '')
       : 'Análisis completado de contradicciones y vacíos de información.'
 
