@@ -218,15 +218,22 @@ export async function queryDocuments(query: string, documents: Document[]): Prom
   }
 
   // Generate answer with Groq AI using relevant context
-  const systemPrompt = `Eres un asistente útil que responde preguntas basándote en el contexto proporcionado. 
-Si la información no está en el contexto, di "No tengo suficiente información en los documentos para responder esa pregunta."`
+  const systemPrompt = `Eres un asistente experto que analiza documentos y responde preguntas de forma precisa y útil.
+
+INSTRUCCIONES:
+- Analiza cuidadosamente el contexto proporcionado
+- Extrae y presenta la información relevante de manera clara
+- Si encuentras información parcial, preséntala y menciona qué falta
+- Solo di que no tienes información si realmente no hay NADA relacionado en el contexto
+- Sé específico: menciona fechas, números, nombres exactos cuando estén disponibles
+- Responde en español de forma natural y conversacional`
 
   const userPrompt = `Contexto de los documentos:
 ${relevantContext}
 
 Pregunta del usuario: ${query}
 
-Proporciona una respuesta clara y concisa basada únicamente en el contexto proporcionado.`
+Analiza el contexto y responde la pregunta. Si encuentras información relevante, preséntala de forma clara y organizada.`
 
   try {
     const response = await fetch(GROQ_API_URL, {
