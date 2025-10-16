@@ -168,7 +168,7 @@ export async function queryDocuments(query: string, documents: Document[]): Prom
   if (isProduction) {
     // Production: Use simple keyword search
     console.log('Production mode: Using keyword search')
-    const keywords = query.toLowerCase().split(' ').filter(w => w.length > 3)
+    const keywords = query.toLowerCase().split(' ').filter(w => w.length > 2) // Reducir de 3 a 2
     
     const scoredChunks = documents.flatMap(doc => 
       doc.chunks.map(chunk => {
@@ -178,17 +178,20 @@ export async function queryDocuments(query: string, documents: Document[]): Prom
         )
         return { chunk, score, documentId: doc.id, documentName: doc.name }
       })
-    ).filter(item => item.score > 0)
+    )
     
+    // Ordenar por score (incluso si es 0, para tener al menos algo de contexto)
     scoredChunks.sort((a, b) => b.score - a.score)
-    const topChunks = scoredChunks.slice(0, 3)
+    
+    // Tomar top 5 chunks en lugar de 3 para más contexto
+    const topChunks = scoredChunks.slice(0, 5)
     
     relevantContext = topChunks.map(item => item.chunk).join('\n\n')
     sources = topChunks.map(item => ({
       text: item.chunk.slice(0, 150) + '...',
       documentId: item.documentId,
       documentName: item.documentName,
-      similarity: item.score / keywords.length
+      similarity: keywords.length > 0 ? item.score / keywords.length : 0
     }))
   } else {
     // Development: Use embeddings for semantic search
@@ -206,7 +209,7 @@ export async function queryDocuments(query: string, documents: Document[]): Prom
     }))
 
     similarities.sort((a, b) => b.similarity - a.similarity)
-    const topChunks = similarities.slice(0, 3)
+    const topChunks = similarities.slice(0, 5) // Aumentar de 3 a 5 para más contexto
     
     relevantContext = topChunks.map(item => item.text).join('\n\n')
     sources = topChunks.map(item => ({
@@ -248,8 +251,8 @@ Analiza el contexto y responde la pregunta. Si encuentras información relevante
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.7,
-        max_tokens: 1500
+        temperature: 0.6, // Bajar un poco para respuestas más precisas
+        max_tokens: 2000 // Aumentar para respuestas más completas
       })
     })
 
